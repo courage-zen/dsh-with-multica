@@ -1,0 +1,137 @@
+name: Build and release dsh-with-multica image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'base/**'
+      - 'versions.yaml'
+      - '.github/workflows/build.yml'
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'base/**'
+      - 'versions.yaml'
+      - '.github/workflows/build.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read versions from versions.yaml
+        id: versions
+        run: |
+          python3 - <<'PY'
+          import json, yaml
+          d = yaml.safe_load(open('versions.yaml'))
+          print(f"::set-output name=project_version::{d['project']['version']}")
+          print(f"::set-output name=multica_version::{d['multica']['version']}")
+          print(f"::set-output name=dsh_version::{d['dsh']['version']}")
+          print(f"::set-output name=dsh_multica_runtime_repo::{d['dsh_multica_runtime']['repo']}")
+          print(f"::set-output name=dsh_multica_runtime_commit::{d['dsh_multica_runtime']['commit']}")
+          PY
+
+      - name: Build and push (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: base/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.project_version }}-amd64
+          build-args: |
+            MULTICA_VERSION=${{ steps.versions.outputs.multica_version }}
+            DSH_VERSION=${{ steps.versions.outputs.dsh_version }}
+            DSH_MULTICA_RUNTIME_REPO=https://github.com/${{ steps.versions.outputs.dsh_multica_runtime_repo }}.git
+            DSH_MULTICA_RUNTIME_COMMIT=${{ steps.versions.outputs.dsh_multica_runtime_commit }}
+
+      - name: Build and push (arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: base/Dockerfile
+          platforms: linux/arm64
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.project_version }}-arm64
+          build-args: |
+            MULTICA_VERSION=${{ steps.versions.outputs.multica_version }}
+            DSH_VERSION=${{ steps.versions.outputs.dsh_version }}
+            DSH_MULTICA_RUNTIME_REPO=https://github.com/${{ steps.versions.outputs.dsh_multica_runtime_repo }}.git
+            DSH_MULTICA_RUNTIME_COMMIT=${{ steps.versions.outputs.dsh_multica_runtime_commit }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read versions from versions.yaml
+        id: versions
+        run: |
+          python3 - <<'PY'
+          import yaml
+          d = yaml.safe_load(open('versions.yaml'))
+          print(f"::set-output name=project_version::{d['project']['version']}")
+          PY
+
+      - name: Extract tag version
+        id: tag
+        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull images and export as tar.gz
+        run: |
+          VERSION="${{ steps.versions.outputs.project_version }}"
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64
+          mkdir -p artifacts
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64 | gzip > artifacts/dsh-with-multica-${VERSION}-amd64.tar.gz
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64 | gzip > artifacts/dsh-with-multica-${VERSION}-arm64.tar.gz
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.tag.outputs.version }}
+          files: |
+            artifacts/dsh-with-multica-${{ steps.versions.outputs.project_version }}-amd64.tar.gz
+            artifacts/dsh-with-multica-${{ steps.versions.outputs.project_version }}-arm64.tar.gz
