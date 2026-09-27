@@ -1,0 +1,10 @@
+project:
+  version: "0.1.0"
+dsh:
+  version: "0.1.7-rc.2"
+multica:
+  version: "0.5.3"
+  repo: "multica-ai/multica"
+dsh_multica_runtime:
+  repo: "multica-ai/dsh-multica-runtime"
+  commit: "e29aae228449dfe50e88af60ef4281e38ca44e2a"
