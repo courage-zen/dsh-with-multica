@@ -28,3 +28,11 @@
 # not package names.)
 - id: llm-deepseek
   disabled: true
+
+# Disable the DeepSeek web-search provider for the same reason: it reads
+# DEEPSEEK_API_KEY which this image does not set. Without this, an agent
+# attempting web search would surface a MISSING_CREDENTIAL error from a
+# provider the operator never configured. The `web-fetch-http` plugin stays
+# enabled, so the agent can still fetch known URLs.
+- id: web-search-deepseek
+  disabled: true
