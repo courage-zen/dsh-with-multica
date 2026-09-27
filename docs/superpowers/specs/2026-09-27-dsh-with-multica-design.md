@@ -142,7 +142,10 @@ File written at build time to `/home/agent/.dsh/profiles/multica/cordis.patch.ym
 # Disable DeepSeek's own API-key provider route so a missing DEEPSEEK_API_KEY
 # doesn't trip the daemon's probe with an unrelated credential error. This
 # image is provider-agnostic and only uses the OpenAI-compatible route above.
-- id: llm-deepseek-api-key
+# (Patch row id is `llm-deepseek`; the package name is
+# `@deepseek-ai/dsh-llm-deepseek-api-key`. Patch composition targets row ids,
+# not package names.)
+- id: llm-deepseek
   disabled: true
 ```
 
@@ -164,12 +167,39 @@ or `docker run -e`):
 request. The secret value is whatever `OPENAI_API_KEY` is set to in the
 container's environment. The patch YAML never contains the secret itself.
 
-**Why disable `llm-deepseek-api-key`:** The dsh base bundle ships a route that
-expects `DEEPSEEK_API_KEY`. Since this image explicitly does not use DeepSeek's
-native API, an unset `DEEPSEEK_API_KEY` would cause `dsh --profile multica
---probe` to surface a `MISSING_CREDENTIAL` error unrelated to the actual
-OpenAI-compatible endpoint, making the daemon report a misleading "runtime
-missing" status.
+**Why disable `llm-deepseek`:** The dsh-base bundle ships a route (`id: llm-deepseek`, package `@deepseek-ai/dsh-llm-deepseek-api-key`) that expects `DEEPSEEK_API_KEY`. Since this image explicitly does not use DeepSeek's native API, an unset `DEEPSEEK_API_KEY` would cause `dsh --profile multica --probe` to surface a `MISSING_CREDENTIAL` error unrelated to the actual OpenAI-compatible endpoint, making the daemon report a misleading "runtime missing" status.
+
+## Plugin composition and version management
+
+### What the multica profile actually contains
+
+`dsh plugin --profile multica add @multica-ai/dsh-runtime` produces a profile with exactly two bundles:
+
+1. **`@deepseek-ai/dsh-base`** — auto-added by `dsh plugin add` (it's `DEFAULT_PROFILE_BUNDLES` in dsh-app-boot). This single bundle's `cordis.patch.yml` mounts ~40 core plugins, including:
+   - Core agent loop: `agent` (`@deepseek-ai/dsh-agent`), `llm`, `session`, `mcp-client`, `subprocess`, `user-approval`, `cmdline`
+   - LLM providers: `llm-pi-ai` (`@deepseek-ai/dsh-llm-pi-ai`, mounted dormant until a settings/patch section supplies provider profiles — exactly what our `cordis.patch.yml` overlay does), `llm-deepseek` (`@deepseek-ai/dsh-llm-deepseek-api-key`, the DeepSeek-native route we disable)
+   - Session persistence: `session-persistence-jsonl`, `session-projection`, `session-query-sqlite`, `attachment-local`
+   - Storage/credentials: `storage`, `storage-json`, `credentials`, `authorization`
+   - Misc: `timer`, `hmr`, `session-telemetry-otel`, `plugin-manager`, `config-editor`, `settings`
+2. **`@multica-ai/dsh-runtime`** (the bridge bundle) — adds `headless-runner` (the stdio protocol surface multica's daemon talks to), disables `hmr` and `telemetry-otel`, configures `session-persistence-jsonl` root via `MULTICA_DSH_SESSION_ROOT`, sets the `system-prompt` persona.
+
+**No additional plugins need to be installed.** Both LLM provider routes we touch (`llm-pi-ai` activate, `llm-deepseek` disable) ship with `dsh-base`.
+
+### Version pinning strategy
+
+| Component | Pinned separately? | Reason |
+|---|---|---|
+| `@deepseek-ai/dsh` (the CLI) | Yes — `versions.yaml: dsh.version` | Top-level package |
+| `@deepseek-ai/dsh-base` and all `@deepseek-ai/dsh-*` sub-packages | **No** — they follow dsh automatically | Transitive dependencies of the dsh CLI, locked by dsh's own `pnpm-lock.yaml`. Pinning them separately would either be redundant (matching dsh's lockfile) or dangerous (diverging from it breaks the runtime). Bumping `dsh.version` bumps them all in lockstep. |
+| `@multica-ai/dsh-runtime` (bridge bundle) | Yes — `versions.yaml: dsh_multica_runtime.commit` | The only external dependency not on the public npm registry. Built from source at the pinned commit. |
+| `multica` CLI | Yes — `versions.yaml: multica.version` | Downloaded from GitHub releases. |
+
+### peerDependency compatibility — the real bump risk
+
+The bridge bundle's `package.json` declares `peerDependencies` on a subset of `@deepseek-ai/dsh-*` packages (e.g. `@deepseek-ai/dsh-agent: ^0.1.0-rc.6`, `@deepseek-ai/dsh-llm: ^0.1.0-rc.6`, plus `@deepseek-ai/cordis: ^4.0.1`). When dsh is bumped to a version whose internal sub-packages no longer satisfy these peer ranges, `dsh plugin --profile multica add` reports the package as **incompatible** and refuses to install it. The operator must then run `dsh plugin --profile multica allow-version <pkg>@<version> --dsh-version <runtime-version> --accept-risk` for each flagged package to record an exemption in the profile's compatibility store.
+
+This is the single most likely failure mode when bumping `dsh.version`. The bump checklist must include: after changing `dsh.version`, run a full image build; if Stage 3 fails with an incompatible-plugin diagnostic, either (a) bump `dsh_multica_runtime.commit` to a newer main HEAD that widens its peer ranges, or (b) add `dsh plugin allow-version` invocations to Stage 3 for the flagged packages after explicit verification that the API surface the bridge uses hasn't broken. Option (a) is preferred when available.
+
 
 ## Entrypoint (`base/entrypoint.sh`)
 
@@ -313,6 +343,7 @@ git tag v0.1.0 && git push origin v0.1.0
 | dsh is `0.1.7-rc.2` (developer preview, breaking changes possible) | Pin exact version in `versions.yaml`; bump deliberately. Document the preview status in README. |
 | Bridge bundle repo has no releases/tags — only `main` branch commits | Pin a specific commit SHA, not `main`. Document how to bump (find a recent SHA, run a build, merge if green). |
 | `dsh plugin --profile multica add` needs network + pnpm registry access at build time | Stage 3 installs pnpm globally first; build runs in CI with network. If registry is flaky, build fails loudly (acceptable). |
+| **Bridge bundle's `peerDependencies` may break when dsh is bumped** (e.g. dsh 0.2.0 ships `@deepseek-ai/dsh-agent@0.2.0` which no longer satisfies `^0.1.0-rc.6`) | Stage 3 surfaces the failure loudly via `dsh plugin`'s incompatible-plugin report. Bump checklist: prefer bumping `dsh_multica_runtime.commit` to a newer main HEAD with widened peer ranges; only fall back to `dsh plugin allow-version` after verifying the bridge's API surface hasn't broken. See "peerDependency compatibility" above. |
 | `llm-pi-ai` provider route syntax is internal dsh config — could break on dsh upgrade | Pin dsh version; when bumping dsh, re-verify the patch YAML against the new version's `llm-pi-ai/config.ts` schema. Document this in the bump checklist. |
 | UID 1000 collision on host bind-mounts | Document that `agent` is UID 1000; operator is responsible for volume ownership. Same posture as reference project. |
 | Bridge bundle's own `cordis.patch.yml` may evolve and conflict with our overlay | Our overlay is applied by dsh's patch composition (loader applies bundle's patch first, then profile's patch). Pin both the bundle commit and dsh version together; re-verify on bump. |
