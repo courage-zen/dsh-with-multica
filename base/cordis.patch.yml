@@ -1,0 +1,26 @@
+# Operator-supplied OpenAI-compatible endpoint. All values resolve from env at
+# profile load time; nothing here is a secret. Set OPENAI_BASE_URL /
+# OPENAI_API_KEY / OPENAI_MODEL via the multica dashboard custom_env or
+# `docker run -e`.
+- id: llm-pi-ai
+  config:
+    providers:
+      openai:
+        api: openai-completions
+        baseURL: !!js process.env.OPENAI_BASE_URL
+        apiKeyEnv: OPENAI_API_KEY
+        displayName: !!js process.env.OPENAI_PROVIDER_NAME || 'OpenAI'
+        models:
+          - id: !!js process.env.OPENAI_MODEL || 'gpt-4o'
+            name: !!js process.env.OPENAI_MODEL_NAME || process.env.OPENAI_MODEL || 'gpt-4o'
+            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW ?? 128000)
+            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS ?? 16384)
+
+# Disable DeepSeek's own API-key provider route so a missing DEEPSEEK_API_KEY
+# doesn't trip the daemon's probe with an unrelated credential error. This
+# image is provider-agnostic and only uses the OpenAI-compatible route above.
+# (Patch row id is `llm-deepseek`; the package name is
+# `@deepseek-ai/dsh-llm-deepseek-api-key`. Patch composition targets row ids,
+# not package names.)
+- id: llm-deepseek
+  disabled: true
