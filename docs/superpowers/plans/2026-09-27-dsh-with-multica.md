@@ -507,14 +507,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read versions from versions.yaml
-        id: versions
-        run: |
-          PROJECT_VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['project']['version'])")
-          echo "PROJECT_VERSION=$PROJECT_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Extract tag version
-        id: tag
+      - name: Extract versions
+        id: version
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
           echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_OUTPUT
@@ -526,22 +520,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull images and export as tar.gz
+      - name: Pull and save images
         run: |
-          VERSION="${{ steps.versions.outputs.PROJECT_VERSION }}"
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64
-          mkdir -p artifacts
-          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64 | gzip > artifacts/dsh-with-multica-${VERSION}-amd64.tar.gz
-          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64 | gzip > artifacts/dsh-with-multica-${VERSION}-arm64.tar.gz
+          docker pull --platform linux/amd64 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TAG_VERSION }}-amd64
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TAG_VERSION }}-amd64 | gzip > dsh-with-multica-amd64.tar.gz
+
+          docker pull --platform linux/arm64 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TAG_VERSION }}-arm64
+          docker save ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.TAG_VERSION }}-arm64 | gzip > dsh-with-multica-arm64.tar.gz
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.tag.outputs.TAG_VERSION }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           files: |
-            artifacts/dsh-with-multica-${{ steps.versions.outputs.PROJECT_VERSION }}-amd64.tar.gz
-            artifacts/dsh-with-multica-${{ steps.versions.outputs.PROJECT_VERSION }}-arm64.tar.gz
+            dsh-with-multica-amd64.tar.gz
+            dsh-with-multica-arm64.tar.gz
 ```
 
 - [ ] **Step 2: Verify the workflow file parses as valid YAML**

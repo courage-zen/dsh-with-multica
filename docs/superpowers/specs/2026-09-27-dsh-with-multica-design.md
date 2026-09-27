@@ -279,13 +279,13 @@ derived-image jobs.
 
 ### Job `release` (depends on `build`, only on `v*` tags)
 
-1. Extract the tag version from `$GITHUB_REF`
+1. Extract the tag version from `$GITHUB_REF` (`TAG_VERSION`)
 2. Login to GHCR
-3. Pull both per-arch images from GHCR
-4. `docker save dsh-with-multica:{version}-amd64 | gzip > dsh-with-multica-{version}-amd64.tar.gz`
-5. Same for arm64
-6. Create a GitHub Release via `softprops/action-gh-release@v2` with both
-   tar.gz files as assets
+3. Pull both per-arch images from GHCR by `TAG_VERSION` (NOT `versions.yaml`'s `project.version` — using the tag as the source of truth means a tag/versions.yaml mismatch fails loudly at the pull instead of producing a release with mismatched images)
+4. `docker save ... | gzip > dsh-with-multica-{arch}.tar.gz` for each arch
+5. Create a GitHub Release via `softprops/action-gh-release@v2` with
+   `tag_name: ${{ github.ref_name }}`, `name: Release ${{ github.ref_name }}`,
+   and both tar.gz files as assets
 
 ### Release flow summary
 
