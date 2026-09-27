@@ -38,6 +38,7 @@ This image mirrors the structure of the sibling project [`agents-with-multica`](
 |---|---|---|
 | `/etc/multica/config.json` (read-only) | yes | multica daemon config: server URL, workspace ID, token |
 | `/home/agent/wiki` (read-only) | no | Reference docs the agent can read |
+| `/home/agent/.dsh/skills` (read-only) | no | Custom dsh skills (multica daemon auto-discovers skills from `$DSH_HOME/skills/`) |
 
 The `agent` user inside the image is UID 1000. Operator-supplied bind mounts must be owned by UID 1000 (or world-readable, depending on your security posture).
 

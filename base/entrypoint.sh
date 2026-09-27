@@ -4,7 +4,7 @@ set -euo pipefail
 # Root phase: create directories, write git credentials, fix ownership, then
 # re-exec as the unprivileged agent user.
 if [ "$(id -u)" = "0" ]; then
-  mkdir -p /etc/multica /home/agent/.multica /home/agent/.dsh /home/agent/wiki
+  mkdir -p /etc/multica /home/agent/.multica /home/agent/.dsh /home/agent/.dsh/skills /home/agent/wiki
 
   # Optional git credentials: GIT_TOKEN, GIT_USERNAME (default oauth2),
   # GIT_HOST (required when GIT_TOKEN is set).

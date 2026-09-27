@@ -145,7 +145,7 @@ set -euo pipefail
 # Root phase: create directories, write git credentials, fix ownership, then
 # re-exec as the unprivileged agent user.
 if [ "$(id -u)" = "0" ]; then
-  mkdir -p /etc/multica /home/agent/.multica /home/agent/.dsh /home/agent/wiki
+  mkdir -p /etc/multica /home/agent/.multica /home/agent/.dsh /home/agent/.dsh/skills /home/agent/wiki
 
   # Optional git credentials: GIT_TOKEN, GIT_USERNAME (default oauth2),
   # GIT_HOST (required when GIT_TOKEN is set).
@@ -294,7 +294,7 @@ COPY --from=dsh-profile-install --chown=agent:agent /home/agent/.dsh /home/agent
 # Entrypoint.
 COPY --chmod=0755 base/entrypoint.sh /entrypoint.sh
 # Runtime dirs.
-RUN mkdir -p /home/agent/wiki && chown -R agent:agent /home/agent
+RUN mkdir -p /home/agent/wiki /home/agent/.dsh/skills && chown -R agent:agent /home/agent
 # System-level git config: credential store + identity.
 RUN git config --system credential.helper store && \
     git config --system user.name agent && \

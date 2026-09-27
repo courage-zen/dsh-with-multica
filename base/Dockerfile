@@ -69,7 +69,7 @@ COPY --from=dsh-profile-install --chown=agent:agent /home/agent/.dsh /home/agent
 # Entrypoint.
 COPY --chmod=0755 base/entrypoint.sh /entrypoint.sh
 # Runtime dirs.
-RUN mkdir -p /home/agent/wiki && chown -R agent:agent /home/agent
+RUN mkdir -p /home/agent/wiki /home/agent/.dsh/skills && chown -R agent:agent /home/agent
 # System-level git config: credential store + identity.
 RUN git config --system credential.helper store && \
     git config --system user.name agent && \

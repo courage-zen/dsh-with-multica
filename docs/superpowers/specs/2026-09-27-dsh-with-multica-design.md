@@ -97,7 +97,7 @@ the same pattern as the reference project.
     (Docker's `COPY --from` follows symlinks, which would break ESM module resolution; copying `node_modules` and recreating the symlink preserves the relative reference)
   - `/home/agent/.dsh/` (the pre-built multica profile) → `/home/agent/.dsh/`
 - Copies `base/entrypoint.sh` → `/entrypoint.sh`, `chmod +x`
-- Creates runtime directories: `/home/agent/wiki`
+- Creates runtime directories: `/home/agent/wiki`, `/home/agent/.dsh/skills`
 - Sets system-level git config: `credential.helper store`,
   `user.name agent`, `user.email agent@container`
 - **No `USER agent` directive** — the entrypoint starts as root (to create
@@ -214,8 +214,7 @@ Two-phase, root → agent drop, mirroring the reference's pattern.
 
 ### Root phase (`id -u == 0`)
 
-1. Create directories: `/etc/multica`, `/home/agent/.multica`, `/home/agent/.dsh`,
-   `/home/agent/wiki`
+1. Create directories: `/etc/multica`, `/home/agent/.multica`, `/home/agent/.dsh`, `/home/agent/.dsh/skills`, `/home/agent/wiki`
 2. If `GIT_TOKEN` is set, write `~/.git-credentials` with
    `https://<GIT_USERNAME>:<GIT_TOKEN>@<GIT_HOST>` (GIT_USERNAME defaults to
    `oauth2`, GIT_HOST is required when GIT_TOKEN is set)
@@ -254,6 +253,7 @@ Two-phase, root → agent drop, mirroring the reference's pattern.
 |---|---|
 | `/etc/multica/config.json` (ro) | multica daemon config: server URL, workspace ID, token |
 | `/home/agent/wiki` (ro) | Reference docs the agent can read |
+| `/home/agent/.dsh/skills` (ro) | Custom dsh skills (multica daemon auto-discovers from `$DSH_HOME/skills/`) |
 
 ## GitHub release flow
 
