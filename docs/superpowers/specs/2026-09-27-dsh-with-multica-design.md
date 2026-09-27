@@ -55,8 +55,8 @@ the same pattern as the reference project.
 ### Stage 1 — `multica-downloader` (Alpine 3.20)
 
 - **Args:** `MULTICA_VERSION`, `TARGETARCH`
-- Downloads `https://github.com/multica-ai/multica/releases/download/v${MULTICA_VERSION}/multica-cli-${MULTICA_VERSION}-linux-${ARCH}.tar.gz`
-  (where `ARCH` is `x86_64` when `TARGETARCH=amd64`, `aarch64` when `arm64` — same mapping as the reference)
+- Downloads `https://github.com/multica-ai/multica/releases/download/v${MULTICA_VERSION}/multica-cli-${MULTICA_VERSION}-linux-${TARGETARCH}.tar.gz`
+  (multica's release assets use `linux-amd64` / `linux-arm64` directly — same naming as `TARGETARCH`, no mapping needed)
 - Extracts and outputs `/out/multica`
 
 ### Stage 2 — `bundle-source` (Alpine 3.20 + git)
@@ -71,7 +71,7 @@ the same pattern as the reference project.
 - **Args:** `DSH_VERSION`
 - `npm install -g @deepseek-ai/dsh@${DSH_VERSION} pnpm`
 - `COPY --from=bundle-source /out/dsh-multica-runtime /dsh-multica-runtime`
-- Creates the `agent` user with **UID 1000**, home `/home/agent`, shell `/bin/bash`
+- Creates the `agent` user with **UID 1000** (`--non-unique` — the `node` base image already has a `node` user at UID 1000), home `/home/agent`, shell `/bin/bash`
 - `ENV HOME=/home/agent DSH_HOME=/home/agent/.dsh`
 - Runs `dsh plugin --profile multica add /dsh-multica-runtime` — this:
   - Creates `/home/agent/.dsh/profiles/multica/`
@@ -89,17 +89,20 @@ the same pattern as the reference project.
 - Installs runtime OS packages: `git`, `ca-certificates`, `curl`, `openssh-client`
   - **No `sudo`**, no sudoers rule — there is no privileged background process
     to start (cc-proxy is gone)
-- Creates the `agent` user with the **same UID 1000** (so ownership copied from
-  stage 3 is consistent)
+- Creates the `agent` user with the **same UID 1000** (`--non-unique` — see stage 3)
 - Copies from stage 1: `multica` binary → `/usr/local/bin/multica`
 - Copies from stage 3:
-  - dsh CLI + global node_modules → `/usr/local/bin/dsh` symlink +
-    `/usr/local/lib/node_modules`
+  - `/usr/local/lib/node_modules` → `/usr/local/lib/node_modules` (dsh + its bundled plugins)
+  - Recreates the `/usr/local/bin/dsh` symlink via `RUN ln -sf ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh`
+    (Docker's `COPY --from` follows symlinks, which would break ESM module resolution; copying `node_modules` and recreating the symlink preserves the relative reference)
   - `/home/agent/.dsh/` (the pre-built multica profile) → `/home/agent/.dsh/`
 - Copies `base/entrypoint.sh` → `/entrypoint.sh`, `chmod +x`
 - Creates runtime directories: `/home/agent/wiki`
 - Sets system-level git config: `credential.helper store`,
   `user.name agent`, `user.email agent@container`
+- **No `USER agent` directive** — the entrypoint starts as root (to create
+  directories, write git credentials, fix ownership) and drops to `agent`
+  via `su -p -s /bin/bash agent`
 - `WORKDIR /home/agent`
 - `ENTRYPOINT ["/entrypoint.sh"]`
 
@@ -125,6 +128,10 @@ File written at build time to `/home/agent/.dsh/profiles/multica/cordis.patch.ym
 # profile load time; nothing here is a secret. Set OPENAI_BASE_URL /
 # OPENAI_API_KEY / OPENAI_MODEL via the multica dashboard custom_env or
 # `docker run -e`.
+#
+# `||` (not `??`) is used for every fallback: an empty-string env var (e.g.
+# `docker run -e OPENAI_CONTEXT_WINDOW=`) must fall through to the default,
+# not become `Number("") === 0`. `??` would let an empty string through.
 - id: llm-pi-ai
   config:
     providers:
@@ -136,8 +143,8 @@ File written at build time to `/home/agent/.dsh/profiles/multica/cordis.patch.ym
         models:
           - id: !!js process.env.OPENAI_MODEL || 'gpt-4o'
             name: !!js process.env.OPENAI_MODEL_NAME || process.env.OPENAI_MODEL || 'gpt-4o'
-            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW ?? 128000)
-            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS ?? 16384)
+            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW || 128000)
+            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS || 16384)
 
 # Disable DeepSeek's own API-key provider route so a missing DEEPSEEK_API_KEY
 # doesn't trip the daemon's probe with an unrelated credential error. This

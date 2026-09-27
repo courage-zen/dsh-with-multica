@@ -85,6 +85,10 @@ This file is COPYed into the image at build time and written into `~/.dsh/profil
 # profile load time; nothing here is a secret. Set OPENAI_BASE_URL /
 # OPENAI_API_KEY / OPENAI_MODEL via the multica dashboard custom_env or
 # `docker run -e`.
+#
+# `||` (not `??`) is used for every fallback: an empty-string env var (e.g.
+# `docker run -e OPENAI_CONTEXT_WINDOW=`) must fall through to the default,
+# not become `Number("") === 0`. `??` would let an empty string through.
 - id: llm-pi-ai
   config:
     providers:
@@ -96,8 +100,8 @@ This file is COPYed into the image at build time and written into `~/.dsh/profil
         models:
           - id: !!js process.env.OPENAI_MODEL || 'gpt-4o'
             name: !!js process.env.OPENAI_MODEL_NAME || process.env.OPENAI_MODEL || 'gpt-4o'
-            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW ?? 128000)
-            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS ?? 16384)
+            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW || 128000)
+            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS || 16384)
 
 # Disable DeepSeek's own API-key provider route so a missing DEEPSEEK_API_KEY
 # doesn't trip the daemon's probe with an unrelated credential error. This
@@ -225,13 +229,9 @@ Stage 1 downloads the multica CLI from GitHub releases. Stage 2 clones the bridg
 FROM alpine:3.20 AS multica-downloader
 ARG MULTICA_VERSION
 ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-      amd64) ARCH=x86_64  ;; \
-      arm64) ARCH=aarch64 ;; \
-      *) echo "unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac && \
+RUN apk add --no-cache wget && \
     wget -q -O /tmp/multica.tar.gz \
-      "https://github.com/multica-ai/multica/releases/download/v${MULTICA_VERSION}/multica-cli-${MULTICA_VERSION}-linux-${ARCH}.tar.gz" && \
+      "https://github.com/multica-ai/multica/releases/download/v${MULTICA_VERSION}/multica-cli-${MULTICA_VERSION}-linux-${TARGETARCH}.tar.gz" && \
     mkdir -p /out && \
     tar -xzf /tmp/multica.tar.gz -C /out && \
     test -x /out/multica
@@ -251,8 +251,9 @@ FROM node:22-bookworm-slim AS dsh-profile-install
 ARG DSH_VERSION
 # pnpm is required by `dsh plugin`; install it alongside dsh.
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" pnpm
-# Create the agent user with a fixed UID so ownership matches stage 4.
-RUN useradd --uid 1000 --create-home --shell /bin/bash agent
+# Create the agent user with a fixed UID. --non-unique is needed because the
+# node base image already has a `node` user at UID 1000.
+RUN useradd --uid 1000 --non-unique --create-home --shell /bin/bash agent
 ENV HOME=/home/agent \
     DSH_HOME=/home/agent/.dsh
 # Bring in the bridge bundle source and install it into the multica profile.
@@ -272,14 +273,16 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       git ca-certificates curl openssh-client && \
     rm -rf /var/lib/apt/lists/*
-RUN useradd --uid 1000 --create-home --shell /bin/bash agent
+RUN useradd --uid 1000 --non-unique --create-home --shell /bin/bash agent
 # multica CLI from stage 1.
 COPY --from=multica-downloader /out/multica /usr/local/bin/multica
-# dsh + its global node_modules from stage 3. The npm global layout puts the
-# dsh binary at /usr/local/bin/dsh (a symlink into node_modules) and the
-# packages at /usr/local/lib/node_modules.
-COPY --from=dsh-profile-install /usr/local/bin/dsh /usr/local/bin/dsh
+# dsh's global node_modules from stage 3. The npm global layout puts packages
+# at /usr/local/lib/node_modules; the dsh binary is a symlink into this tree.
+# We copy node_modules and recreate the symlink in the final stage rather than
+# copying the symlink directly (COPY follows symlinks, which would break ESM
+# module resolution).
 COPY --from=dsh-profile-install /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf ../lib/node_modules/@deepseek-ai/dsh/lib/bin.js /usr/local/bin/dsh
 # Pre-built multica profile (including our cordis.patch.yml overlay).
 COPY --from=dsh-profile-install --chown=agent:agent /home/agent/.dsh /home/agent/.dsh
 # Entrypoint.
@@ -290,7 +293,9 @@ RUN mkdir -p /home/agent/wiki && chown -R agent:agent /home/agent
 RUN git config --system credential.helper store && \
     git config --system user.name agent && \
     git config --system user.email agent@container
-USER agent
+# No USER agent directive: the entrypoint starts as root (to create dirs,
+# write git credentials, fix ownership) and then drops to the agent user via
+# `su -p -s /bin/bash agent`.
 WORKDIR /home/agent
 ENTRYPOINT ["/entrypoint.sh"]
 ```
