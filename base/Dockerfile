@@ -24,20 +24,26 @@ RUN apk add --no-cache git && \
 # ---------- Stage 3: dsh + multica profile install ----------
 FROM node:22-bookworm-slim AS dsh-profile-install
 ARG DSH_VERSION
-# pnpm is required by `dsh plugin`; install it alongside dsh.
+# pnpm is required by `dsh plugin` and to build the bridge bundle.
 RUN npm install -g "@deepseek-ai/dsh@${DSH_VERSION}" pnpm
 # Create the agent user with a fixed UID. --non-unique is needed because the
 # node base image already has a `node` user at UID 1000.
 RUN useradd --uid 1000 --non-unique --create-home --shell /bin/bash agent
 ENV HOME=/home/agent \
     DSH_HOME=/home/agent/.dsh
-# Bring in the bridge bundle source and install it into the multica profile.
-# `dsh plugin --profile multica add` auto-adds @deepseek-ai/dsh-base (the
-# DEFAULT_PROFILE_BUNDLES) and the bridge bundle, creating the profile
-# directory and its package.json.
+# Bring in the bridge bundle source, build it (it ships as TypeScript), and
+# pack into a tarball. Installing from a tarball (rather than a directory)
+# produces a real node_modules entry instead of a symlink that would dangle
+# in the final image.
 COPY --from=bundle-source /out/dsh-multica-runtime /dsh-multica-runtime
-RUN dsh plugin --profile multica add /dsh-multica-runtime && \
-    test -f /home/agent/.dsh/profiles/multica/package.json
+RUN cd /dsh-multica-runtime && \
+    pnpm install --frozen-lockfile && \
+    pnpm build && \
+    test -f dist/index.js && \
+    npm pack && \
+    mv multica-ai-dsh-runtime-*.tgz /tmp/bridge.tgz
+RUN dsh plugin --profile multica add /tmp/bridge.tgz && \
+    test -f /home/agent/.dsh/profiles/multica/node_modules/@multica-ai/dsh-runtime/dist/index.js
 # Overwrite the empty [] template the profile init created with our
 # env-driven LLM provider overlay.
 COPY base/cordis.patch.yml /home/agent/.dsh/profiles/multica/cordis.patch.yml

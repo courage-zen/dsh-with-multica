@@ -73,16 +73,16 @@ the same pattern as the reference project.
 - `COPY --from=bundle-source /out/dsh-multica-runtime /dsh-multica-runtime`
 - Creates the `agent` user with **UID 1000** (`--non-unique` — the `node` base image already has a `node` user at UID 1000), home `/home/agent`, shell `/bin/bash`
 - `ENV HOME=/home/agent DSH_HOME=/home/agent/.dsh`
-- Runs `dsh plugin --profile multica add /dsh-multica-runtime` — this:
+- Builds the bridge bundle (it ships as TypeScript, so `pnpm install --frozen-lockfile && pnpm build` produces `dist/`), then `npm pack`s it into a tarball
+- Runs `dsh plugin --profile multica add /tmp/bridge.tgz` — this:
   - Creates `/home/agent/.dsh/profiles/multica/`
-  - Installs the `@multica-ai/dsh-runtime` bridge bundle (which provides the
-    Multica stdio protocol surface: system-prompt persona, session-persistence,
-    headless-runner, telemetry disable, HMR disable)
-- Writes `/home/agent/.dsh/profiles/multica/cordis.patch.yml` (overwriting
-  the empty `[]` template the profile init step created) with the
-  env-driven LLM provider overlay (see "LLM configuration" below)
-- Outputs: `/home/agent/.dsh/` (profile + the global node_modules that contain
-  dsh and its bundled plugins)
+  - Installs the `@multica-ai/dsh-runtime` bridge bundle as a **real `node_modules` entry** (not a symlink — a directory install from a tarball produces a copy, not a link), which provides the Multica stdio protocol surface: system-prompt persona, session-persistence, headless-runner, telemetry disable, HMR disable
+  - Auto-adds `@deepseek-ai/dsh-base` (the `DEFAULT_PROFILE_BUNDLES`)
+- Verifies the bridge bundle is actually installed by asserting `test -f .../node_modules/@multica-ai/dsh-runtime/dist/index.js`
+- Writes `/home/agent/.dsh/profiles/multica/cordis.patch.yml` (overwriting the empty `[]` template the profile init step created) with the env-driven LLM provider overlay (see "LLM configuration" below)
+- Outputs: `/home/agent/.dsh/` (profile + the global node_modules that contain dsh and its bundled plugins)
+
+**Why tarball, not directory:** `dsh plugin --profile multica add <dir>` installs the bundle as a `link:` to the source directory. The source directory lives at `/dsh-multica-runtime` in stage 3 but is **not** copied to stage 4, so the link would dangle in the final image. Building + `npm pack` + installing from the resulting tarball produces a real `node_modules` entry with no external dependency, so the bridge survives the stage 4 copy.
 
 ### Stage 4 — final (`node:22-bookworm-slim`)
 
