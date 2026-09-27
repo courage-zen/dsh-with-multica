@@ -447,15 +447,16 @@ jobs:
       - name: Read versions from versions.yaml
         id: versions
         run: |
-          python3 - <<'PY'
-          import json, yaml
-          d = yaml.safe_load(open('versions.yaml'))
-          print(f"::set-output name=project_version::{d['project']['version']}")
-          print(f"::set-output name=multica_version::{d['multica']['version']}")
-          print(f"::set-output name=dsh_version::{d['dsh']['version']}")
-          print(f"::set-output name=dsh_multica_runtime_repo::{d['dsh_multica_runtime']['repo']}")
-          print(f"::set-output name=dsh_multica_runtime_commit::{d['dsh_multica_runtime']['commit']}")
-          PY
+          PROJECT_VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['project']['version'])")
+          MULTICA_VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['multica']['version'])")
+          DSH_VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['dsh']['version'])")
+          DSH_MULTICA_RUNTIME_REPO=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['dsh_multica_runtime']['repo'])")
+          DSH_MULTICA_RUNTIME_COMMIT=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['dsh_multica_runtime']['commit'])")
+          echo "PROJECT_VERSION=$PROJECT_VERSION" >> $GITHUB_OUTPUT
+          echo "MULTICA_VERSION=$MULTICA_VERSION" >> $GITHUB_OUTPUT
+          echo "DSH_VERSION=$DSH_VERSION" >> $GITHUB_OUTPUT
+          echo "DSH_MULTICA_RUNTIME_REPO=$DSH_MULTICA_RUNTIME_REPO" >> $GITHUB_OUTPUT
+          echo "DSH_MULTICA_RUNTIME_COMMIT=$DSH_MULTICA_RUNTIME_COMMIT" >> $GITHUB_OUTPUT
 
       - name: Build and push (amd64)
         uses: docker/build-push-action@v6
@@ -466,12 +467,12 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.project_version }}-amd64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.PROJECT_VERSION }}-amd64
           build-args: |
-            MULTICA_VERSION=${{ steps.versions.outputs.multica_version }}
-            DSH_VERSION=${{ steps.versions.outputs.dsh_version }}
-            DSH_MULTICA_RUNTIME_REPO=https://github.com/${{ steps.versions.outputs.dsh_multica_runtime_repo }}.git
-            DSH_MULTICA_RUNTIME_COMMIT=${{ steps.versions.outputs.dsh_multica_runtime_commit }}
+            MULTICA_VERSION=${{ steps.versions.outputs.MULTICA_VERSION }}
+            DSH_VERSION=${{ steps.versions.outputs.DSH_VERSION }}
+            DSH_MULTICA_RUNTIME_REPO=https://github.com/${{ steps.versions.outputs.DSH_MULTICA_RUNTIME_REPO }}.git
+            DSH_MULTICA_RUNTIME_COMMIT=${{ steps.versions.outputs.DSH_MULTICA_RUNTIME_COMMIT }}
 
       - name: Build and push (arm64)
         uses: docker/build-push-action@v6
@@ -482,12 +483,12 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.project_version }}-arm64
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.versions.outputs.PROJECT_VERSION }}-arm64
           build-args: |
-            MULTICA_VERSION=${{ steps.versions.outputs.multica_version }}
-            DSH_VERSION=${{ steps.versions.outputs.dsh_version }}
-            DSH_MULTICA_RUNTIME_REPO=https://github.com/${{ steps.versions.outputs.dsh_multica_runtime_repo }}.git
-            DSH_MULTICA_RUNTIME_COMMIT=${{ steps.versions.outputs.dsh_multica_runtime_commit }}
+            MULTICA_VERSION=${{ steps.versions.outputs.MULTICA_VERSION }}
+            DSH_VERSION=${{ steps.versions.outputs.DSH_VERSION }}
+            DSH_MULTICA_RUNTIME_REPO=https://github.com/${{ steps.versions.outputs.DSH_MULTICA_RUNTIME_REPO }}.git
+            DSH_MULTICA_RUNTIME_COMMIT=${{ steps.versions.outputs.DSH_MULTICA_RUNTIME_COMMIT }}
 
   release:
     needs: build
@@ -503,15 +504,14 @@ jobs:
       - name: Read versions from versions.yaml
         id: versions
         run: |
-          python3 - <<'PY'
-          import yaml
-          d = yaml.safe_load(open('versions.yaml'))
-          print(f"::set-output name=project_version::{d['project']['version']}")
-          PY
+          PROJECT_VERSION=$(python3 -c "import yaml; print(yaml.safe_load(open('versions.yaml'))['project']['version'])")
+          echo "PROJECT_VERSION=$PROJECT_VERSION" >> $GITHUB_OUTPUT
 
       - name: Extract tag version
         id: tag
-        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "TAG_VERSION=$TAG_VERSION" >> $GITHUB_OUTPUT
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -522,7 +522,7 @@ jobs:
 
       - name: Pull images and export as tar.gz
         run: |
-          VERSION="${{ steps.versions.outputs.project_version }}"
+          VERSION="${{ steps.versions.outputs.PROJECT_VERSION }}"
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64
           mkdir -p artifacts
@@ -532,10 +532,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.tag.outputs.version }}
+          name: ${{ steps.tag.outputs.TAG_VERSION }}
           files: |
-            artifacts/dsh-with-multica-${{ steps.versions.outputs.project_version }}-amd64.tar.gz
-            artifacts/dsh-with-multica-${{ steps.versions.outputs.project_version }}-arm64.tar.gz
+            artifacts/dsh-with-multica-${{ steps.versions.outputs.PROJECT_VERSION }}-amd64.tar.gz
+            artifacts/dsh-with-multica-${{ steps.versions.outputs.PROJECT_VERSION }}-arm64.tar.gz
 ```
 
 - [ ] **Step 2: Verify the workflow file parses as valid YAML**
