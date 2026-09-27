@@ -2,6 +2,10 @@
 # profile load time; nothing here is a secret. Set OPENAI_BASE_URL /
 # OPENAI_API_KEY / OPENAI_MODEL via the multica dashboard custom_env or
 # `docker run -e`.
+#
+# `||` (not `??`) is used for every fallback: an empty-string env var (e.g.
+# `docker run -e OPENAI_CONTEXT_WINDOW=`) must fall through to the default,
+# not become `Number("") === 0`. `??` would let an empty string through.
 - id: llm-pi-ai
   config:
     providers:
@@ -13,8 +17,8 @@
         models:
           - id: !!js process.env.OPENAI_MODEL || 'gpt-4o'
             name: !!js process.env.OPENAI_MODEL_NAME || process.env.OPENAI_MODEL || 'gpt-4o'
-            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW ?? 128000)
-            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS ?? 16384)
+            contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW || 128000)
+            maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS || 16384)
 
 # Disable DeepSeek's own API-key provider route so a missing DEEPSEEK_API_KEY
 # doesn't trip the daemon's probe with an unrelated credential error. This
