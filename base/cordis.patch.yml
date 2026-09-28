@@ -20,6 +20,17 @@
             contextWindow: !!js Number(process.env.OPENAI_CONTEXT_WINDOW || 128000)
             maxTokens: !!js Number(process.env.OPENAI_MAX_TOKENS || 16384)
 
+# The default model selection for Agents created without an explicit model.
+# dsh-base ships provider: deepseek-official / model: deepseek-flash, but that
+# route's adapter is disabled below — without this override, a task that sends
+# no model (multica's empty `model=""`) fails at startup with
+# DSH_RUNTIME_ERROR: no adapter registered for provider "deepseek-official".
+# The provider must be `openai`, the llm-pi-ai route key registered above.
+- id: agent-default-model
+  config:
+    provider: openai
+    model: !!js process.env.OPENAI_MODEL || 'gpt-4o'
+
 # Disable DeepSeek's own API-key provider route so a missing DEEPSEEK_API_KEY
 # doesn't trip the daemon's probe with an unrelated credential error. This
 # image is provider-agnostic and only uses the OpenAI-compatible route above.
